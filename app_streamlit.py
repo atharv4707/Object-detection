@@ -40,16 +40,16 @@ with st.sidebar:
 
 # --- Title ---
 st.markdown("<h1>🤖 VisionLive: Real-Time Object Detection</h1>", unsafe_allow_html=True)
-st.caption("Experience real-time object detection in your browser using YOLOv8 and your webcam.")
+st.caption("Experience object detection directly in your browser using YOLOv8 and your webcam.")
 
 # --- Instructions Card ---
 st.markdown("""
 <div class="card">
     <h3>📌 Instructions</h3>
     <ul>
-        <li>Click <b>Start Webcam</b> to begin real-time detection.</li>
+        <li>Click <b>Take Picture</b> to capture from your webcam.</li>
         <li>Allow browser access to your webcam.</li>
-        <li>Detected objects will appear with labels below.</li>
+        <li>Detected objects will appear below.</li>
     </ul>
 </div>
 """, unsafe_allow_html=True)
@@ -61,60 +61,41 @@ def load_model():
 
 model = load_model()
 
-# --- Webcam UI ---
-st.markdown("---")
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    run = st.toggle('🎥 Start Webcam', value=False, key='webcam_toggle')
-    FRAME_WINDOW = st.empty()
-    DETECTED_WINDOW = st.empty()   # <- single container for results
+# --- Camera Input ---
+img_file_buffer = st.camera_input("📸 Take a picture")
 
-# --- Live Detection ---
-if run:
-    cap = cv2.VideoCapture(0)
-    st.info("✅ Webcam started. Uncheck to stop.")
+if img_file_buffer is not None:
+    # Convert to numpy array
+    bytes_data = img_file_buffer.getvalue()
+    img_array = np.frombuffer(bytes_data, np.uint8)
+    frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("❌ Failed to grab frame from webcam.")
-            break
+    # Run YOLO
+    results = model(frame, conf=conf_threshold)
+    annotated_frame = results[0].plot()
 
-        # Run YOLO
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = model(frame_rgb, conf=conf_threshold)
-        annotated_frame = results[0].plot()
-        FRAME_WINDOW.image(annotated_frame, channels="RGB", use_container_width=True, caption="📹 Live Detection")
+    # Show results
+    st.image(annotated_frame, channels="BGR", use_container_width=True, caption="📹 Detection Result")
 
-        # --- Detected Object Counts ---
-        names = results[0].names
-        boxes = results[0].boxes
+    # --- Detected Object Counts ---
+    names = results[0].names
+    boxes = results[0].boxes
 
-        with DETECTED_WINDOW.container():
-            if boxes is not None and len(boxes) > 0:
-                class_ids = boxes.cls.cpu().numpy().astype(int)
-                counts = Counter(class_ids)
+    if boxes is not None and len(boxes) > 0:
+        class_ids = boxes.cls.cpu().numpy().astype(int)
+        counts = Counter(class_ids)
 
-                # Show metrics in 3 columns
-                cols = st.columns(3)
-                for i, (cls, count) in enumerate(counts.items()):
-                    label = names[cls].capitalize()
-                    cols[i % 3].metric(label, count)
+        # Show metrics in 3 columns
+        cols = st.columns(3)
+        for i, (cls, count) in enumerate(counts.items()):
+            label = names[cls].capitalize()
+            cols[i % 3].metric(label, count)
 
-                # Single clean summary line
-                detected_summary = " | ".join([f"{names[c].capitalize()}: {counts[c]}" for c in counts])
-                st.markdown(f"### 🔎 Detected: {detected_summary}")
-            else:
-                st.markdown("### 🔎 Detected: None ❌")
-
-        # Break if toggle off
-        if not st.session_state.get('webcam_toggle', True):
-            break
-
-    cap.release()
-    st.success("🛑 Webcam stopped.")
-else:
-    FRAME_WINDOW.info('Webcam is stopped. Click "Start Webcam" to begin.')
+        # Summary line
+        detected_summary = " | ".join([f"{names[c].capitalize()}: {counts[c]}" for c in counts])
+        st.markdown(f"### 🔎 Detected: {detected_summary}")
+    else:
+        st.markdown("### 🔎 Detected: None ❌")
 
 # --- Footer ---
 st.markdown("""
