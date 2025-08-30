@@ -1,42 +1,52 @@
 import streamlit as st
 import cv2
-import tempfile
 import numpy as np
-from PIL import Image
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import img_to_array
 
-# Dummy detection function (replace with your object detection model)
-def detect_objects(frame):
-    # Example: just draw a rectangle
-    h, w, _ = frame.shape
-    cv2.rectangle(frame, (50, 50), (w-50, h-50), (0, 255, 0), 3)
-    return frame
+# Load trained emotion model
+model = load_model("emotion_model.h5")
+emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
 
-st.set_page_config(page_title="Object Detector", page_icon="🤖", layout="wide")
+st.title("🎥 Real-Time Emotion Detection")
+st.write("Webcam-based live emotion recognition using CNN")
 
-st.title("🤖 Real-Time Object Detection")
-st.write("Turn on your webcam and start detecting objects live.")
+# Button to start webcam
+if st.button("Start Webcam"):
+    cap = cv2.VideoCapture(0)
 
-# Sidebar options
-st.sidebar.header("⚙️ Options")
-live_mode = st.sidebar.checkbox("Enable Live Webcam", value=True)
+    if not cap.isOpened():
+        st.error("❌ Failed to open webcam. Please check your camera access.")
+    else:
+        stframe = st.empty()
 
-if live_mode:
-    st.info("🎥 Webcam is ON. Please allow browser access.")
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                st.error("❌ Failed to grab frame.")
+                break
 
-    # Streamlit camera input
-    picture = st.camera_input("Capture from webcam (auto-refresh for live feed)", key="webcam")
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            face_detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+            faces = face_detector.detectMultiScale(gray, 1.3, 5)
 
-    if picture:
-        # Convert image to OpenCV format
-        img = Image.open(picture)
-        frame = np.array(img)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            for (x, y, w, h) in faces:
+                roi_gray = gray[y:y+h, x:x+w]
+                roi_gray = cv2.resize(roi_gray, (48, 48), interpolation=cv2.INTER_AREA)
 
-        # Run detection
-        detected = detect_objects(frame)
+                if np.sum([roi_gray]) != 0:
+                    roi = roi_gray.astype("float") / 255.0
+                    roi = img_to_array(roi)
+                    roi = np.expand_dims(roi, axis=0)
 
-        # Convert back to RGB for display
-        detected_rgb = cv2.cvtColor(detected, cv2.COLOR_BGR2RGB)
-        st.image(detected_rgb, channels="RGB", caption="Live Detection")
-else:
-    st.warning("🚫 Webcam is OFF. Enable it from sidebar.")
+                    prediction = model.predict(roi)[0]
+                    label = emotion_labels[prediction.argmax()]
+
+                    cv2.putText(frame, label, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0,255,0), 2)
+
+            # Convert frame to RGB for Streamlit
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            stframe.image(frame, channels="RGB")
+
+        cap.release()
