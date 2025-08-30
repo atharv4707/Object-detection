@@ -1,8 +1,9 @@
 import streamlit as st
 import cv2
+from ultralytics import YOLO
 import numpy as np
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.image import img_to_array
+from collections import Counter
+
 
 # Load trained emotion model
 model = load_model("emotion_model.h5")
@@ -50,3 +51,4 @@ if st.button("Start Webcam"):
             stframe.image(frame, channels="RGB")
 
         cap.release()
+
