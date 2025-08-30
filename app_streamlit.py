@@ -1,59 +1,116 @@
-import cv2
-import numpy as np
 import streamlit as st
-from tensorflow.keras.models import load_model
+import cv2
+from ultralytics import YOLO
+import numpy as np
+from collections import Counter
+import time
 
-# Load model safely
-try:
-    model = load_model("emotion_model.h5")
-except Exception as e:
-    st.error(f"Model not found or failed to load: {e}")
-    st.stop()
+# --- App Config ---
+st.set_page_config(page_title="VisionLive: Real-Time Object Detection", page_icon="🤖", layout="wide")
 
-# Load face detector
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+# --- Custom CSS ---
+st.markdown("""
+    <style>
+        .main {background-color: #0D1117;}
+        h1 {
+            background: linear-gradient(to right, #00FFA3, #DC1FFF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+            font-size: 2.5rem;
+        }
+        .card {
+            padding: 15px;
+            border-radius: 10px;
+            background-color: #161B22;
+            color: white;
+            margin-bottom: 15px;
+        }
+        footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 
-# Emotion labels
-labels = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
+# --- Sidebar ---
+with st.sidebar:
+    st.header("⚙️ Settings")
+    conf_threshold = st.slider("Confidence Threshold", 0.0, 1.0, 0.5)
+    mode = st.radio("Choose Mode", ["📸 Capture Image", "🎥 Live Webcam"])
+    st.markdown("---")
+    st.markdown("👨‍💻 Powered by YOLOv8 + Streamlit")
 
-st.title("🎥 Real-time Emotion Detection")
-st.write("Detects emotions live from your webcam")
+# --- Title ---
+st.markdown("<h1>🤖 VisionLive: Real-Time Object Detection</h1>", unsafe_allow_html=True)
+st.caption("Detect objects in real-time using YOLOv8 and your webcam.")
 
-# Webcam start button
-run = st.checkbox("Start Webcam")
+# --- Load Model ---
+@st.cache_resource(show_spinner=True)
+def load_model():
+    return YOLO("yolov8s.pt")
 
-if run:
-    cap = cv2.VideoCapture(0)
+model = load_model()
 
-    if not cap.isOpened():
-        st.error("⚠️ Failed to open webcam. Please check camera permissions.")
-        st.stop()
+# ==================================================
+# MODE 1: Capture Single Image
+# ==================================================
+if mode == "📸 Capture Image":
+    img_file_buffer = st.camera_input("📸 Take a picture")
 
-    stframe = st.empty()
+    if img_file_buffer is not None:
+        bytes_data = img_file_buffer.getvalue()
+        img_array = np.frombuffer(bytes_data, np.uint8)
+        frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("⚠️ Failed to read frame from webcam.")
-            break
+        results = model(frame, conf=conf_threshold)
+        annotated_frame = results[0].plot()
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+        st.image(annotated_frame, channels="BGR", use_container_width=True, caption="📹 Detection Result")
 
-        for (x, y, w, h) in faces:
-            roi_gray = gray[y:y+h, x:x+w]
-            roi_gray = cv2.resize(roi_gray, (48, 48))
-            roi = roi_gray.astype("float") / 255.0
-            roi = np.expand_dims(roi, axis=-1)
-            roi = np.expand_dims(roi, axis=0)
+        names = results[0].names
+        boxes = results[0].boxes
+        if boxes is not None and len(boxes) > 0:
+            class_ids = boxes.cls.cpu().numpy().astype(int)
+            counts = Counter(class_ids)
+            detected_summary = " | ".join([f"{names[c].capitalize()}: {counts[c]}" for c in counts])
+            st.markdown(f"### 🔎 Detected: {detected_summary}")
+        else:
+            st.markdown("### 🔎 Detected: None ❌")
 
-            preds = model.predict(roi)[0]
-            label = labels[np.argmax(preds)]
+# ==================================================
+# MODE 2: Live Webcam Stream
+# ==================================================
+elif mode == "🎥 Live Webcam":
+    run = st.toggle("🎥 Start Webcam", value=False)
+    FRAME_WINDOW = st.empty()
+    DETECTED_WINDOW = st.empty()
 
-            cv2.putText(frame, label, (x, y-10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
+    if run:
+        cap = cv2.VideoCapture(0)
+        st.info("✅ Webcam started. Uncheck to stop.")
 
-        stframe.image(frame, channels="BGR")
+        while run:
+            ret, frame = cap.read()
+            if not ret:
+                st.error("❌ Failed to grab frame from webcam.")
+                break
 
-    cap.release()
+            frame = cv2.flip(frame, 1)  # Mirror effect
+            results = model(frame, conf=conf_threshold)
+            annotated_frame = results[0].plot()
+
+            FRAME_WINDOW.image(annotated_frame, channels="BGR", use_container_width=True, caption="📹 Live Detection")
+
+            names = results[0].names
+            boxes = results[0].boxes
+            with DETECTED_WINDOW.container():
+                if boxes is not None and len(boxes) > 0:
+                    class_ids = boxes.cls.cpu().numpy().astype(int)
+                    counts = Counter(class_ids)
+                    detected_summary = " | ".join([f"{names[c].capitalize()}: {counts[c]}" for c in counts])
+                    st.markdown(f"### 🔎 Detected: {detected_summary}")
+                else:
+                    st.markdown("### 🔎 Detected: None ❌")
+
+            time.sleep(0.03)
+
+        cap.release()
+        st.success("🛑 Webcam stopped.")
