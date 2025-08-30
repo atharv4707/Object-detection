@@ -1,4 +1,5 @@
-tensorflow
+ultralytics
 opencv-python-headless
-numpy
 streamlit
+numpy
+Pillow
