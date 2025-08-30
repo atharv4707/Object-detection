@@ -1,65 +1,42 @@
-import cv2
 import streamlit as st
+import cv2
 import tempfile
-import os
-from ultralytics import YOLO
+import numpy as np
+from PIL import Image
 
-# Load YOLO model
-model = YOLO("yolov8n.pt")
+# Dummy detection function (replace with your object detection model)
+def detect_objects(frame):
+    # Example: just draw a rectangle
+    h, w, _ = frame.shape
+    cv2.rectangle(frame, (50, 50), (w-50, h-50), (0, 255, 0), 3)
+    return frame
 
-st.title("🎥 Live Object Detection with Webcam")
+st.set_page_config(page_title="Object Detector", page_icon="🤖", layout="wide")
 
-# Checkbox to start/stop webcam
-start_cam = st.checkbox("✅ Start Webcam")
+st.title("🤖 Real-Time Object Detection")
+st.write("Turn on your webcam and start detecting objects live.")
 
-# Capture photo option
-capture_photo = st.button("📸 Capture Photo")
+# Sidebar options
+st.sidebar.header("⚙️ Options")
+live_mode = st.sidebar.checkbox("Enable Live Webcam", value=True)
 
-FRAME_WINDOW = st.image([])
+if live_mode:
+    st.info("🎥 Webcam is ON. Please allow browser access.")
 
-if start_cam:
-    cap = cv2.VideoCapture(0)
+    # Streamlit camera input
+    picture = st.camera_input("Capture from webcam (auto-refresh for live feed)", key="webcam")
 
-    if not cap.isOpened():
-        st.error("❌ Failed to open webcam")
-    else:
-        st.success("✅ Webcam started. Uncheck to stop.")
+    if picture:
+        # Convert image to OpenCV format
+        img = Image.open(picture)
+        frame = np.array(img)
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-        while start_cam:
-            ret, frame = cap.read()
-            if not ret:
-                st.error("❌ Failed to grab frame from webcam.")
-                break
+        # Run detection
+        detected = detect_objects(frame)
 
-            # Run YOLO on frame
-            results = model(frame, stream=True)
-
-            # Draw results
-            for r in results:
-                for box in r.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    conf = float(box.conf[0])
-                    cls = int(box.cls[0])
-                    label = f"{model.names[cls]} {conf:.2f}"
-
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(frame, label, (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-            # Convert frame to RGB for Streamlit
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            FRAME_WINDOW.image(frame)
-
-            # Capture photo option
-            if capture_photo:
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-                cv2.imwrite(temp_file.name, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                st.success(f"📸 Photo captured and saved at {temp_file.name}")
-                st.image(frame, caption="Captured Photo", use_column_width=True)
-                capture_photo = False  # Reset button after one click
-
-        cap.release()
-        st.warning("🛑 Webcam stopped.")
-
+        # Convert back to RGB for display
+        detected_rgb = cv2.cvtColor(detected, cv2.COLOR_BGR2RGB)
+        st.image(detected_rgb, channels="RGB", caption="Live Detection")
 else:
-    st.info("☑️ Check the box above to start webcam.")
+    st.warning("🚫 Webcam is OFF. Enable it from sidebar.")
